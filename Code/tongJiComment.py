@@ -6,4 +6,8 @@
 # @Version : V0.1
 
 import pandas as pd
-commentAll = pd.read_csv('JData_Comment.csv', encoding='gbk', chunksize=size)
+
+chunksize = 100
+commentAll = pd.read_csv('JData_Comment.csv', encoding='gbk')
+# comment = commentAll.get_chunk(chunksize)
+print commentAll.describe()

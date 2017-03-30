@@ -10,7 +10,6 @@
 import pandas as pd
 # 配置
 size = 1000
-loop = True
 # 读取文件
 productAll = pd.read_csv('JData_Product.csv', encoding='gbk', chunksize=size)
 # 处理
