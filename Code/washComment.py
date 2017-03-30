@@ -3,7 +3,7 @@
 # @Date    : 2017-03-30 17:10:22
 # @Author  : Xielong (xielong@zju.edu.cn)
 # @Link    : https://github.com/XieLongZju
-# @Version : $Id$
+# @Version : V0.1
 
 import pandas as pd
 
