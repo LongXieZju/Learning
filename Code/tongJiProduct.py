@@ -6,7 +6,8 @@
 # @Version : V0.1
 
 import pandas as pd
+
 productAll = pd.read_csv('JData_Product.csv', encoding='gbk', iterator=True)
 product = productAll.get_chunk(100)
-print product
+print product.plot()
 print product.describe()

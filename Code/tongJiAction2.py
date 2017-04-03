@@ -6,7 +6,7 @@
 # @Version : V0.1
 
 import pandas as pd
-chunksize = 10000
+chunksize = 100
 # action2All = pd.read_csv("JData_Action_201602.csv", encoding="gbk")
 # print action2All.describe()
 action2All = pd.read_csv("JData_Action_201602.csv",
