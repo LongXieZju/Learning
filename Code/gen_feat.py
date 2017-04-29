@@ -234,12 +234,10 @@ def get_actions(start_date, end_date):
                 chunks = chunk[(chunk.time >= start_date)& (chunk.time < end_date)]
                 chunks =  chunks.sort_values(['user_id'])
                 if flag == 1:
-                    chunks.to_csv(dump_path, mode='a',
-                                  header=True, index=False)
+                    chunks.to_csv(dump_path, mode='a',header=True, index=False)
                     flag = 2
                 else:
-                    chunks.to_csv(dump_path, mode='a',
-                                  header=False, index=False)
+                    chunks.to_csv(dump_path, mode='a',header=False, index=False)
             except StopIteration:
                 loop = False
                 print name + " has been stored!"
@@ -291,11 +289,9 @@ def get_action_feat(start_date, end_date):
                     action_5 = '%s-%s-action_5' % (start_date, end_date)
                     action_6 = '%s-%s-action_6' % (start_date, end_date)
                     
-                    user_action_type = encoder.transform(
-                        [[i] for i in actions['type']])
+                    user_action_type = encoder.transform([[i] for i in actions['type']])
                     user_action_type = pd.DataFrame(user_action_type)
-                    user_action_type.columns = (
-                        [action_1, action_2, action_3, action_4, action_5, action_6])
+                    user_action_type.columns = ([action_1, action_2, action_3, action_4, action_5, action_6])
                     user_action_type.index = actions.index
                     
                     actions = pd.concat([actions, user_action_type], axis=1)
@@ -407,7 +403,12 @@ def get_comments_product_feat(start_date, end_date):
 
     name = 'comments_accumulate_%s_%s' % (start_date, end_date)
     dump_path = name + '.csv'
-
+    
+    # type属性编码器
+    X_type = [[0], [1], [2], [3], [4]]
+    Cencoder = OneHotEncoder(dtype=np.int, sparse=False)
+    Cencoder.fit(X_type)
+    
     if os.path.exists(dump_path):
         comments = pd.read_csv(dump_path)
     else:
@@ -415,9 +416,14 @@ def get_comments_product_feat(start_date, end_date):
         path = get_comments(start_date, end_date)
         # 由于评论数数据量不大，可直接读取
         comments = pd.read_csv(path)
-        comment_num = pd.get_dummies(
-            comments['comment_num'], prefix='comment_num')
-        comments = pd.concat([comments, comment_num], axis=1)
+        
+        user_comment = Cencoder.transform([[i] for i in comments['comment_num']])
+        user_comment = pd.DataFrame(user_comment)
+        user_comment.columns = (['comment_num_0', 'comment_num_1', 'comment_num_2', 'comment_num_3', 'comment_num_4'])
+        user_comment.index = comments.index
+        
+        #comment_num = pd.get_dummies(comments['comment_num'], prefix='comment_num')
+        comments = pd.concat([comments, user_comment], axis=1)
         comments.drop(['dt', 'comment_num'], axis=1, inplace=True)
         comments.sort_values(['sku_id'], inplace=True)
         comments.to_csv(dump_path, mode='a',
@@ -455,6 +461,7 @@ def get_accumulate_user_feat(start_date, end_date):
 
         loop = True
         chunksize = 2000000
+        chunks=[]
         while loop:
             try:
                 actions = usersAll.get_chunk(chunksize)
@@ -462,18 +469,17 @@ def get_accumulate_user_feat(start_date, end_date):
                     # 如果有数据则保存一次列名和数据，否则什么也不做
                     actions =  actions.sort_values(['user_id'])
                     
-                    user_action_type = encoder.transform(
-                        [[i] for i in actions['type']])
+                    user_action_type = encoder.transform([[i] for i in actions['type']])
                     user_action_type = pd.DataFrame(user_action_type)
-                    user_action_type.columns = (
-                        ['action_1', 'action_2', 'action_3', 'action_4', 'action_5', 'action_6'])
+                    user_action_type.columns = (['action_1', 'action_2', 'action_3', 'action_4', 'action_5', 'action_6'])
                     user_action_type.index = actions.index
                     actions = pd.concat([actions['user_id'], user_action_type], axis=1)
                     actions = actions.groupby(['user_id'], as_index=False).sum()
+                    chunks.append(actions)
             except StopIteration:
                 loop = False
                 print name + " has been stored!"
-    
+        actions = pd.concat(chunks)
         actions = actions.groupby(['user_id'], as_index=False).sum()
         actions['user_action_1_ratio'] = actions['action_4'] / actions['action_1']
         actions['user_action_2_ratio'] = actions['action_4'] / actions['action_2']
@@ -516,7 +522,7 @@ def get_accumulate_product_feat(start_date, end_date):
                 
                 if chunk.shape[0] != 0:
                     # 如果有数据则保存一次列名和数据，否则什么也不做
-                    chunk =  chunk.sort_values(['user_id'])
+                    chunk = chunk.sort_values(['user_id'])
                     
                     user_action_type = encoder.transform(
                         [[i] for i in chunk['type']])
@@ -564,7 +570,7 @@ def get_labels(start_date, end_date):
                 chunk = labelsAll.get_chunk(chunksize)
                 if chunk.shape[0] != 0:
                     # 如果有数据则保存一次列名和数据，否则什么也不做
-                    chunk =  chunk.sort_values(['user_id'])
+                    chunk = chunk.sort_values(['user_id'])
                     chunk = chunk[chunk['type'] == 4]
                     chunk = chunk.groupby(['user_id', 'sku_id'], as_index=False).sum()
                     chunks.append(chunk)
@@ -590,10 +596,19 @@ def store_set(start_date, end_date):
     start_days = "2016-02-01"
     paths = []
     for i in (1, 2, 3, 5, 7, 10, 15, 21):
-        start_days = datetime.strptime(
-            end_date, '%Y-%m-%d') - timedelta(days=i)
+        start_days = datetime.strptime(end_date, '%Y-%m-%d') - timedelta(days=i)
         start_days = start_days.strftime('%Y-%m-%d')
         path = get_action_feat(start_days, end_date)
+        paths.append(path)
+    for i in (1, 2, 3, 5, 7, 10, 15, 21, 30):
+        start_days = datetime.strptime(end_date, '%Y-%m-%d') - timedelta(days=i)
+        start_days = start_days.strftime('%Y-%m-%d')
+        path = get_accumulate_user_feat(start_days, end_date)
+        paths.append(path)
+    for i in (1, 2, 3, 5, 7, 10, 15, 21, 30):
+        start_days = datetime.strptime(end_date, '%Y-%m-%d') - timedelta(days=i)
+        start_days = start_days.strftime('%Y-%m-%d')
+        path = get_accumulate_product_feat(start_days, end_date)
         paths.append(path)
     return paths
 
@@ -609,27 +624,13 @@ def after_process():
         if os.path.exists('after_' + paths[i]):
             print 'after_' + paths[i]
         else:
-            All = pd.read_csv(paths[i], iterator=True)
-
-            loop = True
-            chunksize = 1000000
-            chunks = []
-            while loop:
-                try:
-                    chunk = All.get_chunk(chunksize)
-                    chunks.append(chunk.groupby(
-                        ['user_id', 'sku_id'], as_index=False).sum())
-                except StopIteration:
-                    loop = False
-                    print paths[i] + " has been merged!"
-            actions = pd.concat(chunks, ignore_index=True)
-            actions.groupby(['user_id', 'sku_id'], as_index=False).sum()
-            actions.to_csv('after_' + paths[i],
-                           mode='a', header=True, index=False)
+            All = pd.read_csv(paths[i])
+            actions=All.groupby(['user_id', 'sku_id', 'cate', 'brand'], as_index=False).sum()
+            actions.to_csv('after_' + paths[i],mode='a', header=True, index=False)
 
 #%%
 
-def merge_set():
+def merge_set(train_start_date, train_end_date):
     # 融合滑窗得到的特征，保存为actionSet.csv
     print 'merge_set start'
     
@@ -641,11 +642,27 @@ def merge_set():
     else:
         paths = store_set(train_start_date, train_end_date)
         actionsAll = pd.read_csv('after_' + paths[7])
-        for i in reversed(range(7)):
-            action = pd.read_csv('after_' + paths[i])
-            actionsAll = pd.merge(actionsAll, action, how='left', on=['user_id', 'sku_id', 'cate', 'brand'])
-            del action
-            actionsAll =  actionsAll.sort_values(['user_id'])
+        actionsAll['user_id'] = actionsAll['user_id'].astype('int')
+        for i in reversed(range(26)):
+            print i
+            print paths[i]
+            if (i>=17) & (i<=25):
+                action = pd.read_csv(paths[i])
+                actionsAll = pd.merge(actionsAll, action, how='left', on=['sku_id'])
+                #actionsAll = actionsAll.sort_values(['user_id'])
+                del action
+            elif (i<=16) & (i>=8):
+                action = pd.read_csv(paths[i])
+                actionsAll = pd.merge(actionsAll, action, how='left', on=['user_id'])
+                #actionsAll = actionsAll.sort_values(['user_id'])
+                del action
+            elif i == 7:
+                continue
+            else:
+                action = pd.read_csv('after_' + paths[i])
+                actionsAll = pd.merge(actionsAll, action, how='left', on=['user_id', 'sku_id', 'cate', 'brand'])
+                del action
+        actionsAll = actionsAll.sort_values(['user_id'])
         actionsAll.to_csv(dump_path, mode='a', header=True, index=False)
         print name + ' has been stored!'
     print 'merge_set finished'
@@ -665,7 +682,7 @@ def make_test_set(train_start_date, train_end_date):
         #labels = get_labels(test_start_date, test_end_date)
         # generate 时间窗口
         # actions = get_accumulate_action_feat(train_start_date, train_end_date)
-        path = merge_set()
+        path = merge_set(train_start_date, train_end_date)
         actionsAll = pd.read_csv(path, iterator=True)
         loop = True
         chunksize = 100000
@@ -681,20 +698,20 @@ def make_test_set(train_start_date, train_end_date):
                 user['user_id'] = user['user_id'].astype('int')
                 actions = pd.merge(actions, user,on='user_id',how='left')
                 del user
-                path = get_accumulate_user_feat(start_days, train_end_date)
-                user_acc = pd.read_csv(path)
-                user_acc['user_id'] = user_acc['user_id'].astype('int')
-                actions = pd.merge(actions, user_acc,on='user_id',how='left')
-                del user_acc
+                # path = get_accumulate_user_feat(start_days, train_end_date)
+                # user_acc = pd.read_csv(path)
+                # user_acc['user_id'] = user_acc['user_id'].astype('int')
+                # actions = pd.merge(actions, user_acc,on='user_id',how='left')
+                # del user_acc
                 product = get_basic_product_feat()
                 product['sku_id'] = product['sku_id'].astype('int')
                 actions = pd.merge(actions, product,on='sku_id',how='left')
                 del product
-                path = get_accumulate_product_feat(start_days, train_end_date)
-                product_acc = pd.read_csv(path)
-                product_acc['sku_id'] = product_acc['sku_id'].astype('int')
-                actions = pd.merge(actions, product_acc,on='sku_id',how='left')
-                del product_acc
+                # path = get_accumulate_product_feat(start_days, train_end_date)
+                # product_acc = pd.read_csv(path)
+                # product_acc['sku_id'] = product_acc['sku_id'].astype('int')
+                # actions = pd.merge(actions, product_acc,on='sku_id',how='left')
+                # del product_acc
                 comment_acc = get_comments_product_feat(train_start_date, train_end_date)
                 comment_acc['sku_id'] = comment_acc['sku_id'].astype('int')
                 actions = pd.merge(actions, comment_acc,on='sku_id',how='left')
@@ -704,6 +721,7 @@ def make_test_set(train_start_date, train_end_date):
                 actions.rename(columns={'cate_x':'cate', 'brand_x':'brand'},inplace=True)
 
                 actions.fillna(0, inplace=True)
+                actions.replace([np.inf,-np.inf], 1, inplace=True)
                 actions = actions[actions['cate'] == 8]
                 
                 users = actions[['user_id', 'sku_id']].copy()
@@ -738,7 +756,7 @@ def make_train_set(train_start_date, train_end_date, test_start_date, test_end_d
         #labels = get_labels(test_start_date, test_end_date)
         # generate 时间窗口
         # actions = get_accumulate_action_feat(train_start_date, train_end_date)
-        path = merge_set()
+        path = merge_set(train_start_date, train_end_date)
         actionsAll = pd.read_csv(path, iterator=True)
         loop = True
         chunksize = 100000
@@ -754,20 +772,20 @@ def make_train_set(train_start_date, train_end_date, test_start_date, test_end_d
                 user['user_id'] = user['user_id'].astype('int')
                 actions = pd.merge(actions, user,on='user_id',how='left')
                 del user
-                path = get_accumulate_user_feat(start_days, train_end_date)
-                user_acc = pd.read_csv(path)
-                user_acc['user_id'] = user_acc['user_id'].astype('int')
-                actions = pd.merge(actions, user_acc,on='user_id',how='left')
-                del user_acc
+                # path = get_accumulate_user_feat(start_days, train_end_date)
+                # user_acc = pd.read_csv(path)
+                # user_acc['user_id'] = user_acc['user_id'].astype('int')
+                # actions = pd.merge(actions, user_acc,on='user_id',how='left')
+                # del user_acc
                 product = get_basic_product_feat()
                 product['sku_id'] = product['sku_id'].astype('int')
                 actions = pd.merge(actions, product,on='sku_id',how='left')
                 del product
-                path = get_accumulate_product_feat(start_days, train_end_date)
-                product_acc = pd.read_csv(path)
-                product_acc['sku_id'] = product_acc['sku_id'].astype('int')
-                actions = pd.merge(actions, product_acc,on='sku_id',how='left')
-                del product_acc
+                # path = get_accumulate_product_feat(start_days, train_end_date)
+                # product_acc = pd.read_csv(path)
+                # product_acc['sku_id'] = product_acc['sku_id'].astype('int')
+                # actions = pd.merge(actions, product_acc,on='sku_id',how='left')
+                # del product_acc
                 comment_acc = get_comments_product_feat(train_start_date, train_end_date)
                 comment_acc['sku_id'] = comment_acc['sku_id'].astype('int')
                 actions = pd.merge(actions, comment_acc,on='sku_id',how='left')
@@ -783,7 +801,8 @@ def make_train_set(train_start_date, train_end_date, test_start_date, test_end_d
                 actions.rename(columns={'cate_x':'cate', 'brand_x':'brand'},inplace=True)
                 
                 actions.fillna(0, inplace=True)
-                actions = actions[actions['cate'] == 8]
+                actions.replace([np.inf,-np.inf], 1, inplace=True)
+                #actions = actions[actions['cate'] == 8]
                 
                 users = actions[['user_id', 'sku_id']].copy()
                 labels = actions['label'].copy()
@@ -810,12 +829,13 @@ def make_train_set(train_start_date, train_end_date, test_start_date, test_end_d
 
 
 def report(pred, label):
+    # 真实label
     actions = label
+    # 预测结果
     result = pred
 
     # 所有用户商品对
-    all_user_item_pair = actions['user_id'].map(
-        str) + '-' + actions['sku_id'].map(str)
+    all_user_item_pair = actions['user_id'].map(str) + '-' + actions['sku_id'].map(str)
     all_user_item_pair = np.array(all_user_item_pair)
 
     # 所有购买用户
@@ -823,8 +843,7 @@ def report(pred, label):
 
     # 所有品类中预测购买的用户
     all_user_test_set = result['user_id'].unique()
-    all_user_test_item_pair = result['user_id'].map(
-        str) + '-' + result['sku_id'].map(str)
+    all_user_test_item_pair = result['user_id'].map(str) + '-' + result['sku_id'].map(str)
     all_user_test_item_pair = np.array(all_user_test_item_pair)
 
     # 计算所有用户购买评价指标
@@ -871,8 +890,8 @@ if __name__ == '__main__':
     get_Allactions()
     store_set(train_start_date, train_end_date)
     after_process()
-    make_test_set(train_start_date, train_end_date)
-    make_train_set(train_start_date, train_end_date, test_start_date, test_end_date)
+#    make_test_set(train_start_date, train_end_date)
+#    make_train_set(train_start_date, train_end_date, test_start_date, test_end_date)
 #     print user.head(10)
 #     print action.head(10)
 #     print label.head(10)
