@@ -8,18 +8,18 @@
 # coding: utf-8
 
 import pandas as pd
-from gen_feat import make_train_set
-from gen_feat import make_test_set
+from gen_feat10 import make_train_set
+from gen_feat10 import make_test_set
 from sklearn.model_selection import train_test_split
 from sklearn.externals import joblib
 import xgboost as xgb
-from gen_feat import report
+#from gen_feat import report
 from score import score
 from Rule import del_has_buyed
 
 
 def xgboost_make_submission():
-    train_start_date = '2016-03-10'
+    train_start_date = '2016-03-31'
     train_end_date = '2016-04-11'
 
     test_start_date = '2016-04-11'
@@ -147,6 +147,6 @@ def xgboost_cv():
     truedata.drop(['label'], axis=1, inplace=True)
     score(pred, truedata)
     
-if __name__ == '__main__':
+#if __name__ == '__main__':
     #xgboost_cv()
-    xgboost_make_submission()
+    #xgboost_make_submission()

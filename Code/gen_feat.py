@@ -447,7 +447,7 @@ def get_accumulate_user_feat(start_date, end_date):
     """
 
     feature = ['user_id', 'user_action_1_ratio', 'user_action_2_ratio',
-               'user_action_3_ratio', 'user_action_5_ratio', 'user_action_6_ratio']
+               'user_action_3_ratio', 'user_action_5_ratio', 'user_action_6_ratio', 'action_4']
 
     name = 'user_feat_accumulate_%s_%s' % (start_date, end_date)
     dump_path = name + '.csv'
@@ -503,7 +503,7 @@ def get_accumulate_product_feat(start_date, end_date):
     """
     print "get_accumulate_product_feat start"
     feature = ['sku_id', 'product_action_1_ratio', 'product_action_2_ratio',
-               'product_action_3_ratio', 'product_action_5_ratio', 'product_action_6_ratio']
+               'product_action_3_ratio', 'product_action_5_ratio', 'product_action_6_ratio', 'action_4']
     name = 'product_feat_accumulate_%s_%s' % (start_date, end_date)
     dump_path = name + '.csv'
     if os.path.exists(dump_path):
@@ -881,15 +881,15 @@ def report(pred, label):
 #%%
 
 if __name__ == '__main__':
-    train_start_date = '2016-03-10'
+    train_start_date = '2016-03-31'
     train_end_date = '2016-04-11'
     
     test_start_date = '2016-04-11'
     test_end_date = '2016-04-16'
 
-    get_Allactions()
-    store_set(train_start_date, train_end_date)
-    after_process()
+    #get_Allactions()
+    #store_set(train_start_date, train_end_date)
+    #after_process()
 #    make_test_set(train_start_date, train_end_date)
 #    make_train_set(train_start_date, train_end_date, test_start_date, test_end_date)
 #     print user.head(10)
