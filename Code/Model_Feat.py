@@ -1,7 +1,7 @@
 
 # coding: utf-8
 
-# In[26]:
+# In[112]:
 
 #!/usr/bin/env python
 
@@ -48,7 +48,7 @@ encoder = OneHotEncoder(dtype=np.int, sparse=False)
 encoder.fit(X_type)
 
 
-# In[27]:
+# In[113]:
 
 
 def convertUserAge(age):
@@ -135,7 +135,7 @@ def get_basic_user_feat():
 # del temp
 
 
-# In[28]:
+# In[114]:
 
 def get_basic_product_feat():
     # 获得产品特征
@@ -161,7 +161,7 @@ def get_basic_product_feat():
 # del temp
 
 
-# In[29]:
+# In[115]:
 
 def get_comments(start_date, end_date):
     
@@ -192,54 +192,112 @@ def get_comments(start_date, end_date):
 # del temp
 
 
-# In[30]:
+# In[128]:
 
-def get_user_action_feat(end_date):
-    start_date = datetime.strptime(end_date, '%Y-%m-%d') - timedelta(days=3)
-    start_date = start_date.strftime('%Y-%m-%d')
+def get_user_action_feat(start_date, end_date):
+#     start_date = datetime.strptime(end_date, '%Y-%m-%d') - timedelta(days=3)
+#     start_date = start_date.strftime('%Y-%m-%d')
     # end_date = '2016-04-16'
     print "get_user_action_feat(%s, %s) start" % (start_date, end_date)
     name = 'diff_sku_cate_%s_%s' % (start_date, end_date)
-    dump_path = basic_path + name + '.csv'
+    dump_path = action_path + name + '.csv'
     
     if os.path.exists(dump_path):
         diff_sku_cate = pd.read_csv(dump_path)
     else:
         actAll = pd.read_csv(action_4_path)
         actions = actAll[(actAll.time >= start_date)& (actAll.time < end_date)]
-        # actions['time'] = actions['time'].apply(lambda x: (datetime.strptime(x, "%Y-%m-%d") - baseTime).days)
-        actions['user_id'] = actions['user_id'].astype('int')
         del actAll
-        actions = actions.groupby(['user_id', 'sku_id', 'cate', 'brand'], as_index=False).sum()
-        actions = actions[['user_id', 'sku_id', 'cate', 'brand']]
-        diff_sku_cate = pd.DataFrame()
-        # 一个用户看过多少不同的商品（reason：用户如果想购买会进行商品比对，会存在噪声，用户会不小心点到其他商品）
-        # 一个用户看过多少不同品类的商品（reason：用户如果想购买会比对相同品类的商品，如果随意浏览则会对很多品类进行操作）
-        print len(actions['user_id'].unique())
-        for user in actions['user_id'].unique():
-            user_action = pd.DataFrame()
-            user_action = actions[actions['user_id'] == user]
-            user_action['diff_sku'] = len(user_action['sku_id'].unique())
-            user_action['diff_cate'] = len(user_action['cate'].unique())
-            diff_sku_cate = pd.concat([diff_sku_cate, user_action], axis=0)
-            del user_action
-        diff_sku_cate = diff_sku_cate.groupby(['user_id'], as_index=False).mean()
-        diff_sku_cate = diff_sku_cate[['user_id', 'diff_sku', 'diff_cate']]
-        diff_sku_cate['ksu_cate_ratio'] = diff_sku_cate['diff_sku'] / diff_sku_cate['diff_cate']
-        diff_sku_cate.to_csv(dump_path, header=True, index=False)
-#     diff_sku_cate['ksu_cate_ratio'] = diff_sku_cate['diff_sku'] / diff_sku_cate['diff_cate']
-#     diff_sku_cate.to_csv('Cache/BasicFeat/'+name+'.csv', header=True, index=False)
-    return diff_sku_cate
-        # 一个用户对该商品操作时间统计（reason：操作时间越长，越可能购买）
-        # 可对model_id进行统计排序，然后进行编号（reason：点击搜索模块的更有倾向购买）
+        actions['user_id'] = actions['user_id'].astype('int')
+        actions = actions.sort_values(['user_id'])
+        # actions['time'] = actions['time'].apply(lambda x: (datetime.strptime(x, "%Y-%m-%d") - baseTime).days)
+        actions['temp_sku_total'] = 1
+        # 用户商品对操作数
+        sku_total = actions.groupby(['user_id', 'sku_id', 'cate', 'brand'], as_index=False).sum()
+        sku_total = sku_total[['user_id', 'sku_id', 'cate', 'brand', 'temp_sku_total']]
+        sku_total.sort_values(['user_id', 'temp_sku_total'], inplace=True, ascending=False)
+        sku_total = sku_total.reset_index(drop=True).reset_index()
+        sku_total.rename(columns={'temp_sku_total':'sku_total', 'index':'sku_total_rank'}, inplace=True)
+        sku_total['temp_diff_sku'] = 1
+        brand_rank = brand_reset()
+        sku_total = sku_total.merge(brand_rank, on=['brand'], how='left')
+        del brand_rank
+        usersAll = get_basic_user_feat()
+        sku_total = sku_total.merge(usersAll, on=['user_id'], how='left')
+        del usersAll
         
+        # 操作不同商品数 & 操作总数
+        diff_sku = sku_total.groupby(['user_id']).sum().reset_index()
+        diff_sku = diff_sku[['user_id', 'sku_total', 'temp_diff_sku']]
+        diff_sku.rename(columns={'sku_total':'action_total', 'temp_diff_sku':'diff_sku'}, inplace=True)
+        sku_total = sku_total.merge(diff_sku, on=['user_id'], how='left')
+        del diff_sku
+        sku_total.drop(['temp_diff_sku'], axis=1, inplace=True)
+        sku_total['sku_action_ratio'] = 1.0 * sku_total['sku_total'] / sku_total['action_total']
+        
+        # 按商品操作次数进行排序编号
+        user_first_num = sku_total.groupby(['user_id']).first().reset_index()
+        user_first_num = user_first_num[['user_id', 'sku_total_rank']]
+        user_first_num.sort_values(['user_id'], inplace=True, ascending=False)
+        user_first_num['sku_action_max'] = 1
+        sku_total = sku_total.merge(user_first_num, on=['user_id', 'sku_total_rank'], how='left')
+        user_first_num.drop(['sku_action_max'], axis=1, inplace=True)
+        user_first_num.rename(columns={'sku_total_rank':'temp_rank'}, inplace=True)
+        sku_total = sku_total.merge(user_first_num, on=['user_id'], how='left')
+        del user_first_num
+        sku_total['sku_total_rank'] = sku_total['sku_total_rank'] - sku_total['temp_rank']
+        sku_total.drop(['temp_rank'], axis=1, inplace=True)
 
-# temp = get_user_action_feat('2016-04-16')
-# print temp.head(10)
+        # 操作商品品类数
+        diff_cate = actions.groupby(['user_id', 'sku_id', 'cate'], as_index=False).sum()
+        diff_cate = diff_cate[['user_id', 'sku_id', 'cate']]
+        diff_cate['temp_diff_cate'] = 1
+        diff_cate = diff_cate.groupby(['user_id', 'cate'], as_index=False).sum()
+        diff_cate = diff_cate[['user_id', 'cate', 'temp_diff_cate']]
+        diff_cate.rename(columns={'temp_diff_cate':'diff_cate_total'}, inplace=True)
+        sku_total = sku_total.merge(diff_cate, on=['user_id', 'cate'], how='left')
+        diff_cate.drop(['diff_cate_total'], axis=1, inplace=True)
+        diff_cate['temp_diff_cate'] = 1
+        diff_cate = diff_cate.groupby(['user_id'], as_index=False).sum()
+        diff_cate = diff_cate[['user_id', 'temp_diff_cate']]
+        diff_cate.rename(columns={'temp_diff_cate':'diff_cate'}, inplace=True)
+        diff_cate.sort_values(['user_id'], inplace=True, ascending=False)
+        sku_total = sku_total.merge(diff_cate, on=['user_id'], how='left')
+        del diff_cate
+        sku_total['diff_cate_ratio'] = 1.0 * sku_total['diff_cate_total'] / sku_total['diff_cate']
+        sku_total['sku_cate_ratio'] = 1.0 * sku_total['diff_sku'] / sku_total['diff_cate']
+        
+        # 操作商品品牌数
+        diff_brand = actions.groupby(['user_id', 'sku_id', 'brand'], as_index=False).sum()
+        diff_brand = diff_brand[['user_id', 'sku_id', 'brand']]
+        diff_brand['temp_diff_brand'] = 1
+        diff_brand = diff_brand.groupby(['user_id', 'brand'], as_index=False).sum()
+        diff_brand = diff_brand[['user_id', 'brand', 'temp_diff_brand']]
+        diff_brand.rename(columns={'temp_diff_brand':'diff_brand_total'}, inplace=True)
+        sku_total = sku_total.merge(diff_brand, on=['user_id', 'brand'], how='left')
+        diff_brand.drop(['diff_brand_total'], axis=1, inplace=True)
+        diff_brand['temp_diff_brand'] = 1
+        diff_brand = diff_brand.groupby(['user_id'], as_index=False).sum()
+        diff_brand = diff_brand[['user_id', 'temp_diff_brand']]
+        diff_brand.rename(columns={'temp_diff_brand':'diff_brand'}, inplace=True)
+        diff_brand.sort_values(['user_id'], inplace=True, ascending=False)
+        sku_total = sku_total.merge(diff_brand, on=['user_id'], how='left')
+        del diff_brand
+        sku_total['diff_brand_ratio'] = 1.0 * sku_total['diff_brand_total'] / sku_total['diff_brand']
+        sku_total['sku_brand_ratio'] = 1.0 * sku_total['diff_sku'] / sku_total['diff_brand']
+        sku_total['cate_brand_ratio'] = 1.0 * sku_total['diff_cate'] / sku_total['diff_brand']
+        sku_total.fillna(0, inplace=True)
+#         print diff_cate.head()
+#         print sku_total.head(20)
+        sku_total.to_csv(dump_path, header=True, index=False)
+    return sku_total
+
+# temp = get_user_action_feat('2016-04-13', '2016-04-16')
+# print temp.head()
 # del temp
 
 
-# In[7]:
+# In[118]:
 
 def model_id_reset():
     act = pd.read_csv(action_4_path)
@@ -254,7 +312,7 @@ def model_id_reset():
     return act_result
 
 
-# In[31]:
+# In[119]:
 
 def brand_reset():
     act = pd.read_csv(action_4_path)
@@ -266,7 +324,7 @@ def brand_reset():
     act = act[['brand', 'action_4']]
     act_result = act.sort_values(['action_4']).reset_index().reset_index()
     act_result = act_result[['brand', 'level_0']]
-    act_result.rename(columns={'level_0':'brand_reset'}, inplace=True)
+    act_result.rename(columns={'level_0':'brand_rank'}, inplace=True)
     del act
     return act_result
 
@@ -275,7 +333,7 @@ def brand_reset():
 # del temp
 
 
-# In[34]:
+# In[178]:
 
 def get_action_feat(start_date, end_date):
     # 获得时间段内用户特征
@@ -289,8 +347,8 @@ def get_action_feat(start_date, end_date):
         print '1'
         actAll = pd.read_csv(action_4_path)
         actions = actAll[(actAll.time >= start_date)& (actAll.time < end_date)]
-        del actAll
         actions['user_id'] = actions['user_id'].astype('int')
+        del actAll
 #         model_id_reset = model_id_reset()
 #         actions = actions.merge(model_id_reset, on=['model_id'], how='left')
         user_action_type = pd.get_dummies(actions['type'], prefix='action')
@@ -300,69 +358,79 @@ def get_action_feat(start_date, end_date):
         # 等会处理
         # actions.loc[actions['model_id'] > 0,'model_id'] = 1
         actions = actions.groupby(['user_id', 'sku_id', 'cate', 'brand'], as_index=False).sum()
+        temp = get_user_action_feat(start_date, end_date)
+        actions = actions.merge(temp, on=['user_id', 'sku_id', 'cate', 'brand'], how='left')
+        del temp
         productsAll = get_basic_product_feat()
         actions = actions.merge(productsAll, on=['sku_id', 'cate', 'brand'], how='left')
         del productsAll
-        usersAll = get_basic_user_feat()
-        actions = actions.merge(usersAll, on=['user_id'], how='left')
-        del usersAll
+#         usersAll = get_basic_user_feat()
+#         actions = actions.merge(usersAll, on=['user_id'], how='left')
+#         del usersAll
         
         # 不同品类累计特征
         cate_feat = actions.groupby(['cate'], as_index=False).sum()
         cate_feat = cate_feat[['cate', 'action_1', 'action_2', 'action_3', 'action_4', 'action_5', 'action_6']]
-        cate_feat['ratio1'] = cate_feat['action_4']/cate_feat['action_1']
-        cate_feat['ratio2'] = cate_feat['action_4']/cate_feat['action_2']
-        cate_feat['ratio3'] = cate_feat['action_4']/cate_feat['action_3']
-        cate_feat['ratio5'] = cate_feat['action_4']/cate_feat['action_5']
-        cate_feat['ratio6'] = cate_feat['action_4']/cate_feat['action_6']
+        cate_feat.columns = ['cate', 'cate_action_1', 'cate_action_2', 'cate_action_3', 'cate_action_4', 'cate_action_5', 'cate_action_6']
+        cate_feat['cate_ratio1'] = cate_feat['cate_action_4']/cate_feat['cate_action_1']
+        cate_feat['cate_ratio2'] = cate_feat['cate_action_4']/cate_feat['cate_action_2']
+        cate_feat['cate_ratio3'] = cate_feat['cate_action_4']/cate_feat['cate_action_3']
+        cate_feat['cate_ratio5'] = cate_feat['cate_action_4']/cate_feat['cate_action_5']
+        cate_feat['cate_ratio6'] = cate_feat['cate_action_4']/cate_feat['cate_action_6']
         # 不同品牌累计特征
         brand_feat = actions.groupby(['brand'], as_index=False).sum()
         brand_feat = brand_feat[['brand', 'action_1', 'action_2', 'action_3', 'action_4', 'action_5', 'action_6']]
-        brand_feat['ratio1'] = brand_feat['action_4']/brand_feat['action_1']
-        brand_feat['ratio2'] = brand_feat['action_4']/brand_feat['action_2']
-        brand_feat['ratio3'] = brand_feat['action_4']/brand_feat['action_3']
-        brand_feat['ratio5'] = brand_feat['action_4']/brand_feat['action_5']
-        brand_feat['ratio6'] = brand_feat['action_4']/brand_feat['action_6']
+        brand_feat.columns = ['brand', 'brand_action_1', 'brand_action_2', 'brand_action_3', 'brand_action_4', 'brand_action_5', 'brand_action_6']
+        brand_feat['brand_ratio1'] = brand_feat['brand_action_4']/brand_feat['brand_action_1']
+        brand_feat['brand_ratio2'] = brand_feat['brand_action_4']/brand_feat['brand_action_2']
+        brand_feat['brand_ratio3'] = brand_feat['brand_action_4']/brand_feat['brand_action_3']
+        brand_feat['brand_ratio5'] = brand_feat['brand_action_4']/brand_feat['brand_action_5']
+        brand_feat['brand_ratio6'] = brand_feat['brand_action_4']/brand_feat['brand_action_6']
         # 不同用户累积特征
         user_feat = actions.groupby(['user_id'], as_index=False).sum()
         user_feat = user_feat[['user_id', 'action_1', 'action_2', 'action_3', 'action_4', 'action_5', 'action_6']]
-        user_feat['ratio1'] = user_feat['action_4']/user_feat['action_1']
-        user_feat['ratio2'] = user_feat['action_4']/user_feat['action_2']
-        user_feat['ratio3'] = user_feat['action_4']/user_feat['action_3']
-        user_feat['ratio5'] = user_feat['action_4']/user_feat['action_5']
-        user_feat['ratio6'] = user_feat['action_4']/user_feat['action_6']
+        user_feat.columns = ['user_id', 'user_action_1', 'user_action_2', 'user_action_3', 'user_action_4', 'user_action_5', 'user_action_6']
+        user_feat['user_ratio1'] = user_feat['user_action_4']/user_feat['user_action_1']
+        user_feat['user_ratio2'] = user_feat['user_action_4']/user_feat['user_action_2']
+        user_feat['user_ratio3'] = user_feat['user_action_4']/user_feat['user_action_3']
+        user_feat['user_ratio5'] = user_feat['user_action_4']/user_feat['user_action_5']
+        user_feat['user_ratio6'] = user_feat['user_action_4']/user_feat['user_action_6']
         # 不同商品累积特征
         sku_feat = actions.groupby(['sku_id'], as_index=False).sum()
         sku_feat = sku_feat[['sku_id', 'action_1', 'action_2', 'action_3', 'action_4', 'action_5', 'action_6']]
-        sku_feat['ratio1'] = sku_feat['action_4']/sku_feat['action_1']
-        sku_feat['ratio2'] = sku_feat['action_4']/sku_feat['action_2']
-        sku_feat['ratio3'] = sku_feat['action_4']/sku_feat['action_3']
-        sku_feat['ratio5'] = sku_feat['action_4']/sku_feat['action_5']
-        sku_feat['ratio6'] = sku_feat['action_4']/sku_feat['action_6']
+        sku_feat.columns = ['sku_id', 'sku_action_1', 'sku_action_2', 'sku_action_3', 'sku_action_4', 'sku_action_5', 'sku_action_6']
+        sku_feat['sku_ratio1'] = sku_feat['sku_action_4']/sku_feat['sku_action_1']
+        sku_feat['sku_ratio2'] = sku_feat['sku_action_4']/sku_feat['sku_action_2']
+        sku_feat['sku_ratio3'] = sku_feat['sku_action_4']/sku_feat['sku_action_3']
+        sku_feat['sku_ratio5'] = sku_feat['sku_action_4']/sku_feat['sku_action_5']
+        sku_feat['sku_ratio6'] = sku_feat['sku_action_4']/sku_feat['sku_action_6']
         # 不同年龄段累计特征
         age_feat = actions.groupby(['age'], as_index=False).sum()
         age_feat = age_feat[['age', 'action_1', 'action_2', 'action_3', 'action_4', 'action_5', 'action_6']]
-        age_feat['ratio1'] = age_feat['action_4']/age_feat['action_1']
-        age_feat['ratio2'] = age_feat['action_4']/age_feat['action_2']
-        age_feat['ratio3'] = age_feat['action_4']/age_feat['action_3']
-        age_feat['ratio5'] = age_feat['action_4']/age_feat['action_5']
-        age_feat['ratio6'] = age_feat['action_4']/age_feat['action_6']
+        age_feat.columns = ['age', 'age_action_1', 'age_action_2', 'age_action_3', 'age_action_4', 'age_action_5', 'age_action_6']
+        age_feat['age_ratio1'] = age_feat['age_action_4']/age_feat['age_action_1']
+        age_feat['age_ratio2'] = age_feat['age_action_4']/age_feat['age_action_2']
+        age_feat['age_ratio3'] = age_feat['age_action_4']/age_feat['age_action_3']
+        age_feat['age_ratio5'] = age_feat['age_action_4']/age_feat['age_action_5']
+        age_feat['age_ratio6'] = age_feat['age_action_4']/age_feat['age_action_6']
         # 不同性别累计特征
-        sex_feat = actions.groupby(['sex'], as_index=False).sum()
-        sex_feat = sex_feat[['sex', 'action_1', 'action_2', 'action_3', 'action_4', 'action_5', 'action_6']]
-        sex_feat['ratio1'] = sex_feat['action_4']/sex_feat['action_1']
-        sex_feat['ratio2'] = sex_feat['action_4']/sex_feat['action_2']
-        sex_feat['ratio3'] = sex_feat['action_4']/sex_feat['action_3']
-        sex_feat['ratio5'] = sex_feat['action_4']/sex_feat['action_5']
-        sex_feat['ratio6'] = sex_feat['action_4']/sex_feat['action_6']
+#         sex_feat = actions.groupby(['sex'], as_index=False).sum()
+#         sex_feat = sex_feat[['sex', 'action_1', 'action_2', 'action_3', 'action_4', 'action_5', 'action_6']]
+#         sex_feat.columns = ['sex', 'sex_action_1', 'sex_action_2', 'sex_action_3', 'sex_action_4', 'sex_action_5', 'sex_action_6']
+#         sex_feat['sex_ratio1'] = sex_feat['sex_action_4']/sex_feat['sex_action_1']
+#         sex_feat['sex_ratio2'] = sex_feat['sex_action_4']/sex_feat['sex_action_2']
+#         sex_feat['sex_ratio3'] = sex_feat['sex_action_4']/sex_feat['sex_action_3']
+#         sex_feat['sex_ratio5'] = sex_feat['sex_action_4']/sex_feat['sex_action_5']
+#         sex_feat['sex_ratio6'] = sex_feat['sex_action_4']/sex_feat['sex_action_6']
         # 不同用户等级累计特征
-        lv_feat = actions.groupby(['user_lv_cd'], as_index=False).sum()
-        lv_feat = lv_feat[['user_lv_cd', 'action_1', 'action_2', 'action_3', 'action_4', 'action_5', 'action_6']]
-        lv_feat['ratio1'] = lv_feat['action_4']/lv_feat['action_1']
-        lv_feat['ratio2'] = lv_feat['action_4']/lv_feat['action_2']
-        lv_feat['ratio3'] = lv_feat['action_4']/lv_feat['action_3']
-        lv_feat['ratio5'] = lv_feat['action_4']/lv_feat['action_5']
-        lv_feat['ratio6'] = lv_feat['action_4']/lv_feat['action_6']
+#         lv_feat = actions.groupby(['user_lv_cd'], as_index=False).sum()
+#         lv_feat = lv_feat[['user_lv_cd', 'action_1', 'action_2', 'action_3', 'action_4', 'action_5', 'action_6']]
+#         lv_feat.columns = ['user_lv_cd', 'lv_action_1', 'lv_action_2', 'lv_action_3', 'lv_action_4', 'lv_action_5', 'lv_action_6']
+#         lv_feat['lv_ratio1'] = lv_feat['lv_action_4']/lv_feat['lv_action_1']
+#         lv_feat['lv_ratio2'] = lv_feat['lv_action_4']/lv_feat['lv_action_2']
+#         lv_feat['lv_ratio3'] = lv_feat['lv_action_4']/lv_feat['lv_action_3']
+#         lv_feat['lv_ratio5'] = lv_feat['lv_action_4']/lv_feat['lv_action_5']
+#         lv_feat['lv_ratio6'] = lv_feat['lv_action_4']/lv_feat['lv_action_6']
         # 融合
         actions = actions.merge(cate_feat, on=['cate'], how='left')
         del cate_feat
@@ -374,14 +442,14 @@ def get_action_feat(start_date, end_date):
         del sku_feat
         actions = actions.merge(age_feat, on=['age'], how='left')
         del age_feat
-        actions = actions.merge(sex_feat, on=['sex'], how='left')
-        del sex_feat
-        actions = actions.merge(lv_feat, on=['user_lv_cd'], how='left')
-        del lv_feat
-        # 可对品牌根据销量排序（reason：考虑品牌可靠度）
-        temp = brand_reset()
-        actions = actions.merge(temp, on=['brand'], how='left')
-        del temp
+#         actions = actions.merge(sex_feat, on=['sex'], how='left')
+#         del sex_feat
+#         actions = actions.merge(lv_feat, on=['user_lv_cd'], how='left')
+#         del lv_feat
+#         # 可对品牌根据销量排序（reason：考虑品牌可靠度）
+#         temp = brand_reset()
+#         actions = actions.merge(temp, on=['brand'], how='left')
+#         del temp
 #         temp = get_user_action_feat()
 #         actions = actions.merge(temp, on=['user_id'], how='left')
 #         del temp
@@ -396,7 +464,7 @@ def get_action_feat(start_date, end_date):
 # del temp
 
 
-# In[36]:
+# In[169]:
 
 def store_set(start_date, end_date):
     print "store_set(%s, %s) start" % (start_date, end_date)
@@ -419,11 +487,11 @@ def store_set(start_date, end_date):
                 del actions
                 flag = 2
             else:
-                feat_set = feat_set.merge(actions, on=['user_id', 'sku_id', 'cate', 'brand'], how='left')
+                feat_set = feat_set.merge(actions, on=['user_id', 'sku_id', 'cate', 'brand', 'brand_rank'], how='left')
                 del actions
-        user_action = get_user_action_feat(end_date)
-        feat_set = feat_set.merge(user_action, on=['user_id'], how='left')
-        del user_action 
+#         user_action = get_user_action_feat(start_date, end_date)
+#         feat_set = feat_set.merge(user_action, on=['user_id'], how='left')
+#         del user_action 
         print len(feat_set)
         comment = get_comments(start_date, end_date)
         feat_set = feat_set.merge(comment, on=['sku_id'], how='left')
@@ -440,7 +508,7 @@ def store_set(start_date, end_date):
 # del temp
 
 
-# In[11]:
+# In[170]:
 
 def get_labels(start_date, end_date):
     # 获取label标签
@@ -464,7 +532,7 @@ def get_labels(start_date, end_date):
     return labels
 
 
-# In[12]:
+# In[171]:
 
 #%%
 
@@ -606,7 +674,7 @@ def del_has_buyed(result, end_date):
     insection_user.rename(columns={'label_x': 'label'}, inplace=True)
 
 
-# In[13]:
+# In[172]:
 
 #%%
 
@@ -660,7 +728,7 @@ def report(pred, label):
     print 'score=' + str(score)
 
 
-# In[14]:
+# In[173]:
 
 #%% 规则
 
@@ -709,26 +777,7 @@ def del_has_buyed(result, end_date):
     return insection_user
 
 
-# In[15]:
-
-# train_start_date = '2016-03-31'
-# train_end_date = '2016-04-11'
-
-# test_start_date = '2016-04-11'
-# test_end_date = '2016-04-16'
-
-# sub_start_date = '2016-03-15'
-# sub_end_date = '2016-04-16'
-
-# train_set = make_train_set(train_start_date, train_end_date, test_start_date, test_end_date)
-# print train_set.head()
-# del train_set
-# sub_training_data = make_test_set(sub_start_date, sub_end_date)
-# print sub_training_data.head()
-# del sub_training_data
-
-
-# In[16]:
+# In[175]:
 
 from sklearn.ensemble import RandomForestRegressor  
 def RF_model():
@@ -755,7 +804,7 @@ def RF_model():
     print "Training model finished"
 
 
-# In[17]:
+# In[176]:
 
 def predict():
     sub_start_date = '2016-03-15'
@@ -801,7 +850,7 @@ def predict():
 # predict()
 
 
-# In[25]:
+# In[182]:
 
 
 def xgboost_make_submission():
@@ -840,13 +889,13 @@ def xgboost_make_submission():
     plst = param.items()
     plst += [('eval_metric','logloss')]
     evallist = [(dtest, 'eval'),(dtrain, 'train')]
-#     bst = xgb.train(plst, dtrain, num_round, evallist)
+    bst = xgb.train(plst, dtrain, num_round, evallist)
     del dtest
     del dtrain
     del plst
     del evallist
     
-#     joblib.dump(bst,'20170512model.pkl')
+    joblib.dump(bst, sub_path + '20170515model.pkl')
     
     sub_training_data = make_test_set(sub_start_date, sub_end_date)
     # 去掉不是商品子集的用户商品对
@@ -859,7 +908,7 @@ def xgboost_make_submission():
     sub_training_data = sub_training_data.drop(['user_id', 'sku_id', 'dt', 'temp'], axis=1)
     print sub_training_data.head()
     sub_training_data = xgb.DMatrix(sub_training_data.values)
-    bst = joblib.load('20170512model.pkl')
+#     bst = joblib.load(sub_path + '20170515model.pkl')
     y = bst.predict(sub_training_data)
     del sub_training_data
     sub_user_index['label'] = y
@@ -874,7 +923,7 @@ def xgboost_make_submission():
     sub_user_index = sub_user_index.sort_values(['label'], ascending=False)
     sub_user_index = sub_user_index.groupby('user_id').first().reset_index()
     sub_user_index = sub_user_index.sort_values(['label'], ascending=False)
-    sub_user_index.to_csv('original_result_pro.csv', index=False,index_label=False)
+    sub_user_index.to_csv(sub_path + 'original_result_pro.csv', index=False,index_label=False)
     
     
 #     #sub_user_index.reset_index()
